@@ -36,6 +36,14 @@ impl Entry {
             Kind::Note { quote, .. } => quote.as_deref(),
         }
     }
+
+    /// The reader's own words, if they typed any. A plain highlight has none.
+    pub fn note(&self) -> Option<&str> {
+        match &self.kind {
+            Kind::Highlight { .. } => None,
+            Kind::Note { note, .. } => (!note.trim().is_empty()).then_some(note.as_str()),
+        }
+    }
 }
 
 // Quote characters we accept as delimiters (straight, German, guillemets).
