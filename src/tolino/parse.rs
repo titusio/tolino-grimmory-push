@@ -19,6 +19,25 @@ pub struct Entry {
     added: NaiveDateTime,
 }
 
+impl Entry {
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+
+    pub fn page(&self) -> u32 {
+        self.page
+    }
+
+    /// The passage from the book, if this entry has one. A note the reader typed
+    /// without selecting any text has nothing to locate.
+    pub fn quote(&self) -> Option<&str> {
+        match &self.kind {
+            Kind::Highlight { quote } => Some(quote),
+            Kind::Note { quote, .. } => quote.as_deref(),
+        }
+    }
+}
+
 // Quote characters we accept as delimiters (straight, German, guillemets).
 const OPEN: &[char] = &['"', '„', '“', '«', '»'];
 const CLOSE: &[char] = &['"', '”', '“', '«', '»'];
