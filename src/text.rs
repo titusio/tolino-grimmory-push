@@ -2,13 +2,22 @@
 //! a map back to CFI coordinates (step path + UTF-16 offset within the text
 //! node) for every character that survives normalization.
 
+/// One CFI child step, plus the element's `id` if it has one. The id becomes the
+/// optional assertion a CFI can carry — `/2[p01]` — which lets a reader detect
+/// that a document changed under a stored CFI.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Step {
+    pub index: usize,
+    pub id: Option<String>,
+}
+
 /// A point inside a content document, in the coordinates a CFI needs:
 /// `path` is the sequence of CFI child steps from the root element's children
 /// down to a text node (so the last step is always odd), and `utf16_offset` is
 /// the offset into that text node measured in UTF-16 code units.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Point {
-    pub path: Vec<usize>,
+    pub path: Vec<Step>,
     pub utf16_offset: usize,
 }
 
@@ -27,7 +36,7 @@ pub struct Match {
 struct Segment {
     buf_start: usize,
     buf_len: usize,
-    path: Vec<usize>,
+    path: Vec<Step>,
     utf16_start: usize,
 }
 
@@ -97,7 +106,7 @@ impl FlatText {
         })
     }
 
-    fn walk(&mut self, node: roxmltree::Node, path: &mut Vec<usize>) {
+    fn walk(&mut self, node: roxmltree::Node, path: &mut Vec<Step>) {
         let mut elements_seen = 0;
         // Adjacent text nodes (and text separated only by comments or PIs) form
         // a single logical text node for CFI purposes, so they accumulate here
@@ -117,7 +126,10 @@ impl FlatText {
             self.flush(&mut pending, 2 * elements_seen + 1, path);
             elements_seen += 1;
 
-            path.push(2 * elements_seen);
+            path.push(Step {
+                index: 2 * elements_seen,
+                id: child.attribute("id").map(str::to_string),
+            });
             if !matches!(child.tag_name().name(), "head" | "script" | "style") {
                 self.walk(child, path);
             }
@@ -129,7 +141,7 @@ impl FlatText {
 
     /// Appends one logical text node to the buffer, recording a segment per run
     /// of non-whitespace.
-    fn flush(&mut self, pending: &mut Vec<&str>, step: usize, path: &[usize]) {
+    fn flush(&mut self, pending: &mut Vec<&str>, step: usize, path: &[Step]) {
         if pending.is_empty() {
             return;
         }
@@ -138,7 +150,10 @@ impl FlatText {
         pending.clear();
 
         let mut node_path = path.to_vec();
-        node_path.push(step);
+        node_path.push(Step {
+            index: step,
+            id: None, // text nodes cannot carry an assertion
+        });
 
         let mut utf16_pos = 0;
         let mut open = false;
@@ -189,10 +204,15 @@ pub fn normalize(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{FlatText, Point};
+    use super::{FlatText, Point, Step};
 
     fn flat(xhtml: &str) -> FlatText {
         FlatText::build(xhtml).expect("parses")
+    }
+
+    /// Step indices only, for assertions that don't care about ids.
+    fn indices(path: &[Step]) -> Vec<usize> {
+        path.iter().map(|s| s.index).collect()
     }
 
     #[test]
@@ -203,7 +223,7 @@ mod tests {
         let m = &f.find_all("world")[0];
         // body is html's 2nd element child (/4), p is body's 1st (/2), the text
         // node precedes any element inside p (/1).
-        assert_eq!(m.start.path, vec![4, 2, 1]);
+        assert_eq!(indices(&m.start.path), vec![4, 2, 1]);
         assert_eq!(m.start.utf16_offset, 6);
         assert_eq!(m.end.utf16_offset, 11);
     }
@@ -215,21 +235,47 @@ mod tests {
 
         let m = &f.find_all("quick brown fox")[0];
         // no <head> here, so <body> is html's first element child: /2, not /4
-        assert_eq!(
-            m.start,
-            Point {
-                path: vec![2, 2, 1],
-                utf16_offset: 4
-            }
-        );
+        assert_eq!(indices(&m.start.path), vec![2, 2, 1]);
+        assert_eq!(m.start.utf16_offset, 4);
         // ends in the text node after <i>, which is step 3 of <p>
+        assert_eq!(indices(&m.end.path), vec![2, 2, 3]);
+        assert_eq!(m.end.utf16_offset, 4);
+    }
+
+    #[test]
+    fn records_element_ids_as_assertions() {
+        let f = flat(r#"<html><body><div id="p01"><p>Hello</p></div></body></html>"#);
+        let m = &f.find_all("Hello")[0];
+
         assert_eq!(
-            m.end,
-            Point {
-                path: vec![2, 2, 3],
-                utf16_offset: 4
+            m.start.path[1],
+            Step {
+                index: 2,
+                id: Some("p01".to_string())
             }
         );
+        // text nodes and id-less elements carry no assertion
+        assert_eq!(m.start.path[0].id, None);
+        assert_eq!(m.start.path[2].id, None);
+    }
+
+    #[test]
+    fn point_equality_covers_ids() {
+        let a = Point {
+            path: vec![Step {
+                index: 2,
+                id: None,
+            }],
+            utf16_offset: 0,
+        };
+        let b = Point {
+            path: vec![Step {
+                index: 2,
+                id: Some("x".to_string()),
+            }],
+            utf16_offset: 0,
+        };
+        assert_ne!(a, b);
     }
 
     #[test]
@@ -261,7 +307,7 @@ mod tests {
         let f = flat("<html><body><p>echo</p><p>echo</p></body></html>");
         let hits = f.find_all("echo");
         assert_eq!(hits.len(), 2);
-        assert_eq!(hits[0].start.path, vec![2, 2, 1]);
-        assert_eq!(hits[1].start.path, vec![2, 4, 1]);
+        assert_eq!(indices(&hits[0].start.path), vec![2, 2, 1]);
+        assert_eq!(indices(&hits[1].start.path), vec![2, 4, 1]);
     }
 }

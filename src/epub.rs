@@ -7,6 +7,19 @@ use std::io::{Cursor, Read};
 pub struct SpineItem {
     pub idref: String,
     pub href: String,
+    /// CFI step of this `<itemref>` within `<spine>`.
+    pub step: usize,
+}
+
+/// The spine, plus its own address inside the package document. Both halves are
+/// needed for the part of a CFI before the `!`.
+#[derive(Debug)]
+pub struct Spine {
+    /// CFI step of `<spine>` within `<package>` — conventionally 6, but derived
+    /// rather than assumed, since it depends on the order of the package's
+    /// element children.
+    pub step: usize,
+    pub items: Vec<SpineItem>,
 }
 
 /// An opened epub container. Owning the archive keeps every `by_name` borrow
@@ -55,8 +68,8 @@ impl Epub {
     }
 
     /// The spine in reading order, each entry resolved through the manifest to
-    /// a zip path ready for `read_entry`.
-    pub fn spine(&mut self) -> Result<Vec<SpineItem>, Box<dyn std::error::Error>> {
+    /// a zip path ready for `read_entry`, and each carrying its CFI step.
+    pub fn spine(&mut self) -> Result<Spine, Box<dyn std::error::Error>> {
         let opf_path = self.opf_path()?;
         let opf = self.read_entry(&opf_path)?;
         let doc = roxmltree::Document::parse(&opf)?;
@@ -70,10 +83,20 @@ impl Epub {
             .filter_map(|n| Some((n.attribute("id")?, n.attribute("href")?)))
             .collect();
 
+        let package = doc.root_element();
+        let Some(spine) = package
+            .children()
+            .filter(|n| n.is_element())
+            .position(|n| n.tag_name().name() == "spine")
+        else {
+            return Err("no <spine> in the package document".into());
+        };
+
         let mut items = Vec::new();
-        for itemref in doc
+        for (i, itemref) in doc
             .descendants()
             .filter(|n| in_parent(n, "spine") && n.tag_name().name() == "itemref")
+            .enumerate()
         {
             let Some(idref) = itemref.attribute("idref") else {
                 return Err("<itemref> has no idref attribute".into());
@@ -86,10 +109,14 @@ impl Epub {
             items.push(SpineItem {
                 idref: idref.to_string(),
                 href: resolve_href(base, href),
+                step: 2 * (i + 1),
             });
         }
 
-        Ok(items)
+        Ok(Spine {
+            step: 2 * (spine + 1),
+            items,
+        })
     }
 }
 

@@ -71,15 +71,28 @@ pub async fn get_books(token: &String) -> Result<Vec<Book>, Box<dyn std::error::
     Ok(books)
 }
 
+#[derive(Deserialize, Debug)]
+#[serde(rename_all(deserialize = "camelCase"))]
+#[allow(dead_code)]
+pub struct Annotation {
+    pub id: u32,
+    pub book_id: u32,
+    pub cfi: String,
+    pub text: String,
+    pub note: Option<String>,
+    pub chapter_title: Option<String>,
+    pub color: String,
+    pub style: String,
+    created_at: String,
+    updated_at: String,
+    user_id: u32,
+}
+
 /// Fetches the annotations grimmory holds for a book.
-///
-/// Returns raw JSON for now: the payload shape hasn't been observed yet, and a
-/// wrong `Deserialize` struct would fail as a parse error rather than showing
-/// what the server actually sends.
 pub async fn get_annotations(
     book_id: u32,
     token: &str,
-) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+) -> Result<Vec<Annotation>, Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
     let annotations = client
         .get(format!("{BASE}/annotations/book/{book_id}"))
@@ -87,7 +100,7 @@ pub async fn get_annotations(
         .send()
         .await?
         .error_for_status()?
-        .json::<serde_json::Value>()
+        .json::<Vec<Annotation>>()
         .await?;
 
     Ok(annotations)

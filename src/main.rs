@@ -1,3 +1,4 @@
+pub mod cfi;
 pub mod epub;
 pub mod grimmory;
 pub mod text;
@@ -19,21 +20,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut epub = epub::Epub::open(bytes)?;
     let spine = epub.spine()?;
 
-    for annotation in annotations.as_array().into_iter().flatten() {
-        let Some(needle) = annotation["text"].as_str() else {
-            continue;
-        };
-        println!("\ngrimmory: {}", annotation["cfi"]);
+    for annotation in &annotations {
+        println!("\ngrimmory: {}", annotation.cfi);
 
-        for (i, item) in spine.iter().enumerate() {
+        for item in &spine.items {
             let source = epub.read_entry(&item.href)?;
             let flat = text::FlatText::build(&source)?;
 
-            for hit in flat.find_all(needle) {
-                println!(
-                    "    ours: spine {i} ({}) /{:?}:{} .. /{:?}:{}",
-                    item.idref, hit.start.path, hit.start.utf16_offset, hit.end.path, hit.end.utf16_offset
-                );
+            for hit in flat.find_all(&annotation.text) {
+                let ours = cfi::range(spine.step, item.step, &hit);
+                let verdict = if ours == annotation.cfi { "==" } else { "!=" };
+                println!("    ours: {ours} {verdict}");
             }
         }
     }
