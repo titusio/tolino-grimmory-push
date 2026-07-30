@@ -1,9 +1,5 @@
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::io::{Cursor, Read};
-use zip::read::ZipFile;
-
-use crate::tolino;
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all(deserialize = "camelCase"))]
@@ -73,21 +69,20 @@ pub async fn get_books(token: &String) -> Result<Vec<Book>, Box<dyn std::error::
     Ok(books)
 }
 
+/// Fetches the raw epub bytes for a book, verifying we actually got a zip back.
 pub async fn download_book(
     book: &Book,
-    token: &String,
-) -> Result<String, Box<dyn std::error::Error>> {
+    token: &str,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
     let response = client
         .get(format!(
             "http://10.0.10.10:6060/api/v1/books/{}/download",
             book.id
         ))
-        .bearer_auth(&token)
+        .bearer_auth(token)
         .send()
         .await?;
-
-    dbg!(&response);
 
     let status = response.status();
     let content_type = response
@@ -108,30 +103,5 @@ pub async fn download_book(
         .into());
     }
 
-    let cursor = std::io::Cursor::new(bytes);
-    let Ok(mut archive) = zip::ZipArchive::new(cursor) else {
-        return Err("Failed to construct zip archive".into());
-    };
-
-    let mut file = archive.by_name("META-INF/container.xml")?;
-
-    let mut contents = String::new();
-    file.read_to_string(&mut contents)?;
-
-    let doc = roxmltree::Document::parse(&contents)?;
-
-    let Some(rootfile) = doc
-        .descendants()
-        .find(|n| n.tag_name().name() == "rootfile")
-    else {
-        return Err("no <rootfile> found in container.xml".into());
-    };
-
-    let Some(opf_path) = rootfile.attribute("full-path") else {
-        return Err("<rootfile> has no full-path attribute".into());
-    };
-
-    // let contents_file = archive.by_name(opf_path)?.read_to_string(&mut contents)?;
-
-    return Ok("".to_string());
+    Ok(bytes.to_vec())
 }
