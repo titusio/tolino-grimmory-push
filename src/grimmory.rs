@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 const BASE: &str = "http://10.0.10.10:6060/api/v1";
@@ -104,6 +104,40 @@ pub async fn get_annotations(
         .await?;
 
     Ok(annotations)
+}
+
+/// The body grimmory expects when creating an annotation. `color` and `style`
+/// are free-form strings server-side, so they are the caller's to choose —
+/// mirroring an existing annotation is the safest way to pick them.
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct NewAnnotation<'a> {
+    pub book_id: u32,
+    pub cfi: &'a str,
+    pub text: &'a str,
+    pub color: &'a str,
+    pub style: &'a str,
+    pub note: Option<&'a str>,
+    pub chapter_title: Option<&'a str>,
+}
+
+/// Creates a highlight or note and returns it as grimmory stored it.
+pub async fn create_annotation(
+    annotation: &NewAnnotation<'_>,
+    token: &str,
+) -> Result<Annotation, Box<dyn std::error::Error>> {
+    let client = reqwest::Client::new();
+    let created = client
+        .post(format!("{BASE}/annotations"))
+        .bearer_auth(token)
+        .json(annotation)
+        .send()
+        .await?
+        .error_for_status()?
+        .json::<Annotation>()
+        .await?;
+
+    Ok(created)
 }
 
 /// Fetches the raw epub bytes for a book, verifying we actually got a zip back.
