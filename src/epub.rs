@@ -22,7 +22,7 @@ impl Epub {
     }
 
     /// Reads a single archive entry into an owned String.
-    fn read_entry(&mut self, name: &str) -> Result<String, Box<dyn std::error::Error>> {
+    pub fn read_entry(&mut self, name: &str) -> Result<String, Box<dyn std::error::Error>> {
         let mut file = self.archive.by_name(name)?;
         let mut contents = String::new();
         file.read_to_string(&mut contents)?;
