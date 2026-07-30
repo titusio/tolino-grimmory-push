@@ -1,6 +1,8 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 
+const BASE: &str = "http://10.0.10.10:6060/api/v1";
+
 #[derive(Deserialize, Debug)]
 #[serde(rename_all(deserialize = "camelCase"))]
 #[allow(dead_code)]
@@ -15,7 +17,7 @@ pub struct LoginResponse {
 #[serde(rename_all(deserialize = "camelCase"))]
 #[allow(dead_code)]
 pub struct Book {
-    id: u32,
+    pub id: u32,
     library_id: u32,
     library_name: String,
     metadata: Metadata,
@@ -45,7 +47,7 @@ pub async fn login() -> Result<String, Box<dyn std::error::Error>> {
 
     let client = reqwest::Client::new();
     let res = client
-        .post("http://10.0.10.10:6060/api/v1/auth/login")
+        .post(format!("{BASE}/auth/login"))
         .json(&map)
         .send()
         .await?
@@ -59,7 +61,7 @@ pub async fn get_books(token: &String) -> Result<Vec<Book>, Box<dyn std::error::
     println!("Getting books");
     let client = reqwest::Client::new();
     let books = client
-        .get("http://10.0.10.10:6060/api/v1/books")
+        .get(format!("{BASE}/books"))
         .bearer_auth(token)
         .send()
         .await?
@@ -69,6 +71,28 @@ pub async fn get_books(token: &String) -> Result<Vec<Book>, Box<dyn std::error::
     Ok(books)
 }
 
+/// Fetches the annotations grimmory holds for a book.
+///
+/// Returns raw JSON for now: the payload shape hasn't been observed yet, and a
+/// wrong `Deserialize` struct would fail as a parse error rather than showing
+/// what the server actually sends.
+pub async fn get_annotations(
+    book_id: u32,
+    token: &str,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let client = reqwest::Client::new();
+    let annotations = client
+        .get(format!("{BASE}/annotations/book/{book_id}"))
+        .bearer_auth(token)
+        .send()
+        .await?
+        .error_for_status()?
+        .json::<serde_json::Value>()
+        .await?;
+
+    Ok(annotations)
+}
+
 /// Fetches the raw epub bytes for a book, verifying we actually got a zip back.
 pub async fn download_book(
     book: &Book,
@@ -76,10 +100,7 @@ pub async fn download_book(
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
     let response = client
-        .get(format!(
-            "http://10.0.10.10:6060/api/v1/books/{}/download",
-            book.id
-        ))
+        .get(format!("{BASE}/books/{}/download", book.id))
         .bearer_auth(token)
         .send()
         .await?;
