@@ -53,7 +53,9 @@ const CLOSE: &[char] = &['"', '”', '“', '«', '»'];
 // Regexes compiled once on first use.
 fn marker_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"^(Markierung|Notiz) auf Seite (\d+):\s*(.*)$").unwrap())
+    // A passage spanning a page break is labelled "Seite 43-44"; we keep the
+    // page it starts on, since the page number is only ever a label here.
+    RE.get_or_init(|| Regex::new(r"^(Markierung|Notiz) auf Seite (\d+)(?:-\d+)?:\s*(.*)$").unwrap())
 }
 
 fn title_re() -> &'static Regex {
